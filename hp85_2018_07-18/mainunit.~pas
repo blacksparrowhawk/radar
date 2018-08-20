@@ -1,0 +1,825 @@
+unit mainunit;
+
+interface
+
+uses
+  Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+  Dialogs, StdCtrls, Grids, StrUtils, Math, Menus, rchart, ComCtrls,
+  Buttons, ExtCtrls, IniFiles, DB, ADODB, dstruct;
+
+type
+  TForm_main = class(TForm)
+    StringGrid1: TStringGrid;
+    MainMenu1: TMainMenu;
+    File1: TMenuItem;
+    Selectdataset: TMenuItem;
+    Exit1: TMenuItem;
+    Preferences1: TMenuItem;
+    RChart1: TRChart;
+    RChart2: TRChart;
+    StatusBar1: TStatusBar;
+    Edit1: TEdit;
+    Definedataset: TMenuItem;
+    Help1: TMenuItem;
+    lb_tracks: TListBox;
+    cb_stoptime: TComboBox;
+    cb_starttime: TComboBox;
+    Label1: TLabel;
+    Label3: TLabel;
+    ADOConn: TADOConnection;
+    ADOCommand1: TADOCommand;
+    ADODataSet1: TADODataSet;
+    cb_year: TComboBox;
+    cb_excludecrap: TCheckBox;
+    rg_colltype: TRadioGroup;
+    cb_dataset: TComboBox;
+    cb_exclude_edited: TCheckBox;
+    ADODataSet2: TADODataSet;
+    btn_id: TButton;
+    btn_azi: TButton;
+    btn_elev: TButton;
+    btn_dist: TButton;
+    btn_dl: TButton;
+    btn_ael: TButton;
+    btn_stat: TButton;
+    btn_store: TButton;
+    lbl_tracksel: TLabel;
+    Label2: TLabel;
+    lb_editlog: TListBox;
+    Label4: TLabel;
+    StringArray1: TStringArray;
+    btn_delsel: TButton;
+    lb_sqltest: TListBox;
+    ADOCommand2: TADOCommand;
+    cb_excludeTrack: TCheckBox;
+    Debugmode1: TMenuItem;
+    lbl_trackquality: TLabel;
+    Edit2: TMenuItem;
+    Removeeditingforthistrack1: TMenuItem;
+    lbl_targettype: TLabel;
+    lbl_targetcomment: TLabel;
+    lbl_overallcomment: TLabel;
+    lbl_admincomment: TLabel;
+    btn_altitudeplot: TButton;
+    btn_refreshlist: TButton;
+    procedure FormCreate(Sender: TObject);
+    procedure FormResize(Sender: TObject);
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
+    procedure Exit1Click(Sender: TObject);
+
+    procedure StringGrid1DrawCell(Sender: TObject; ACol, ARow: Integer;
+      Rect: TRect; State: TGridDrawState);
+
+    procedure StringGrid1SelectCell(Sender: TObject; ACol, ARow: Integer;
+      var CanSelect: Boolean);
+    procedure Edit1Exit(Sender: TObject);
+
+    procedure cb_yearChange(Sender: TObject);
+    procedure cb_starttimeChange(Sender: TObject);
+    procedure DefinedatasetClick(Sender: TObject);
+    procedure cb_stoptimeChange(Sender: TObject);
+    procedure lb_tracksClick(Sender: TObject);
+    procedure btn_idClick(Sender: TObject);
+    procedure btn_aziClick(Sender: TObject);
+    procedure btn_elevClick(Sender: TObject);
+    procedure btn_distClick(Sender: TObject);
+    procedure btn_dlClick(Sender: TObject);
+    procedure btn_aelClick(Sender: TObject);
+    procedure btn_statClick(Sender: TObject);
+    procedure btn_storeClick(Sender: TObject);
+    procedure btn_delselClick(Sender: TObject);
+    procedure cb_datasetChange(Sender: TObject);
+    procedure Help1Click(Sender: TObject);
+    procedure Debugmode1Click(Sender: TObject);
+    procedure rg_colltypeClick(Sender: TObject);
+    procedure btn_altitudeplotClick(Sender: TObject);
+    procedure btn_refreshlistClick(Sender: TObject);
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  published
+
+  end;
+
+var
+  Form_main: TForm_main;
+
+implementation
+
+uses dataset_unit;
+
+
+{$R *.dfm}
+
+ (* "global" vars *)
+
+var  dvect : array of real;
+     current_track_id : integer;
+     dataset_id : integer;
+     debugmode : boolean;
+
+procedure HandleDrawGraph(which : integer);
+var  q,w : integer;
+  ymax, ymin : real;
+   valid_data : boolean;
+   ctrlchar : string;
+   scalemarg : real;
+begin
+
+   valid_data:=true;
+   SetLength(dvect,Form_main.StringGrid1.RowCount);
+     for q:=0 to Form_main.StringGrid1.RowCount-1 do
+      begin
+         ctrlchar:=AnsiUpperCase(Form_main.StringGrid1.Cells[6,q]);
+        if (ctrlchar[1]='D') then
+          valid_data:=false;
+        if (AnsiUpperCase(Form_main.StringGrid1.Cells[6,q])='E') then
+          valid_data:=true;
+        if ((valid_data) AND (ctrlchar[1]<>'S')) then
+         begin
+          if (which=4) then // if altitude
+           dvect[q]:=StrToFloat(Form_main.StringGrid1.Cells[3,q])*sin(DegToRad(StrToFloat(Form_main.StringGrid1.Cells[2,q])))
+          else
+           dvect[q]:=StrToFloat(Form_main.StringGrid1.Cells[which,q]); // If not altitude
+         end
+        else
+         dvect[q]:=-20000;    // dirty...  flag value for deleted data...
+      end;
+     Form_main.RChart1.Scale1X.RangeLow:=StrToInt(Form_main.StringGrid1.Cells[0,0]);  // Set Xmin to value of 1st cell in col 1
+     Form_main.RChart1.Scale1X.RangeHigh:=Form_main.RChart1.Scale1X.RangeLow+Form_main.StringGrid1.RowCount-1; // Set Xmin to value of 1st cell in col 1 + number of rows -1
+     With Form_main.RChart1.Scale1Y do
+      Case which of
+        1 : begin {Azimuth}
+               RangeLow:=-2;  RangeHigh:=360;   Caption:='[deg.]';
+               Form_main.RChart1.Caption:='Azimuth';   scalemarg:=3;
+            end;
+        2 : begin {Elevation}
+               RangeLow:=-3; RangeHigh:=91;    Caption:='[deg.]';
+               Form_main.RChart1.Caption:='Elevation'; scalemarg:=0.5;
+            end;
+        3 : begin {Distance}
+               RangeLow:=-2;  RangeHigh:=25000; Caption:='[m]';
+               Form_main.RChart1.Caption:='Distance';  scalemarg:=50;
+            end;
+        4 : begin {Altitude}
+               RangeLow:=-2;  RangeHigh:=4000; Caption:='[m]';
+               Form_main.RChart1.Caption:='Altitude';  scalemarg:=10;
+            end
+         else scalemarg:=1;
+      end;
+
+     Form_main.RChart1.ClearGraf;
+     Form_main.RChart2.Scale1Y.Caption:=Form_main.RChart1.Scale1Y.Caption;
+     Form_main.RChart2.Caption:=Form_main.RChart1.Caption;
+    // Form_main.RChart1.DataColor:=clFuchsia;
+     q:=0;
+     // Move chart1 cursor to first datapoint
+     if dvect[0]>-20000 then
+      Form_main.RChart1.MoveTo(StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[0])
+     else
+      begin
+       q:=0;
+       repeat
+        inc(q);
+       until (dvect[q]>-20000);
+       Form_main.RChart1.MoveTo(q+StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[q]);
+      end;
+
+     // Draw chart1 dataline
+     for w:= q to Form_main.StringGrid1.RowCount-1 do          //2
+      begin
+          if (dvect[w]=-20000) then
+            Form_main.RChart1.DataColor:=clYellow
+          else begin
+            Form_main.RChart1.DrawTo(w+StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[w]);
+            Form_main.RChart1.DataColor:=clRed;
+          end;
+      end; {for w ...}
+
+     Form_main.RChart1.ShowGrafNewOnly;
+
+     Form_main.RChart1.Scale1X.RangeLow:=StrToInt(Form_main.StringGrid1.Cells[0,0]);  // get Xmin from first ID
+     Form_main.RChart1.Scale1X.RangeHigh:=Form_main.RChart1.Scale1X.RangeLow+Form_main.StringGrid1.RowCount-1;
+     ymax:=-20000; ymin:=10000;
+
+     // Calculate scaling for lower chart
+     for w:= q to Form_main.StringGrid1.RowCount-1 do
+      begin
+       if dvect[w]>ymax then ymax:=dvect[w];
+       if ((dvect[w]<ymin) AND (dvect[w]>-20000))then ymin:=dvect[w];
+      end;
+     Form_main.RChart2.Scale1Y.RangeLow:=ymin-scalemarg;
+     Form_main.RChart2.Scale1Y.RangeHigh:=ymax+scalemarg;
+     Form_main.RChart2.Scale1X.RangeLow:=Form_main.RChart1.Scale1X.RangeLow;
+     Form_main.RChart2.Scale1X.RangeHigh:=Form_main.RChart1.Scale1X.RangeHigh;
+     Form_main.RChart2.ClearGraf;
+     Form_main.RChart2.DataColor:=clRed;
+
+     // Move chart2 cursor to first datapoint
+     if dvect[0]>-20000 then
+      Form_main.RChart2.MoveTo(StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[0])
+     else
+      begin
+       q:=0;
+       repeat
+        inc(q);
+       until (dvect[q]>-20000);
+       Form_main.RChart2.MoveTo(q+StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[q]);
+      end;
+
+     // Draw chart2 dataline
+     for w:= q to Form_main.StringGrid1.RowCount-1 do
+      begin
+(*        If (dvect[w]>-20000) then
+           Form_main.RChart2.DrawTo(w+StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[w])
+        else
+           Form_main.RChart2.MoveTo(w+StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[w]); *)
+       if (dvect[w]=-20000) then
+          Form_main.RChart2.DataColor:=clBlack
+       else begin
+         Form_main.RChart2.DrawTo(w+StrToInt(Form_main.StringGrid1.Cells[0,0]),dvect[w]);
+         Form_main.RChart2.DataColor:=clRed;
+       end;
+      end; {for w ...}
+
+     // Plot tickmarks in chart2 ?
+     Form_main.RChart2.DataColor:=clRed;
+     Form_main.RChart2.ShowGraf;
+end;
+
+
+procedure TForm_main.FormCreate(Sender: TObject);
+var AppIniFile : TIniFile;
+    i,count : integer;
+    sql : string;
+begin
+  AppIniFile := TIniFile.Create('trackfile.ini');
+  debugmode:=false;
+  AppIniFile.Free;
+  dataset_id:=0;
+  rg_colltype.ItemIndex:=0;  current_track_id:=0;
+  sql:='SELECT * FROM dataset';
+//  ADOConn.ConnectionString:='Provider=PostgreSQL.1;Password=radar;User ID=radar;Data Source=localhost;Location=radar2006;Extended Properties=""';
+  ADOCommand1.CommandText:=sql;
+  ADODataset1.Recordset:=ADOCommand1.Execute;
+  count:=ADOdataset1.RecordCount;
+  if count>0 then begin
+  ADOdataset1.Recordset.MoveFirst;
+  for i:=0 to count-1 do
+   begin
+    cb_dataset.Items.Add(String(ADOdataset1.Recordset.Fields.Item['dataset_name'].Value));
+    ADOdataset1.Recordset.MoveNext;
+   end;
+  end;
+  sql:='SELECT distinct date_part(''year'',starttime) as year FROM track WHERE true ';
+  if cb_excludecrap.Checked then sql:=sql+'AND track_quality!=''C'' ';
+  sql:=sql+' AND collection_type=';
+  if (rg_colltype.ItemIndex=0) then sql:=sql+'''B''' else sql:=sql+'''W''';
+  sql:=sql+' ORDER BY year asc';
+  ADOCommand1.CommandText:=sql;
+  ADODataset1.Recordset:=ADOCommand1.Execute;
+  count:=ADOdataset1.RecordCount;
+  ADOdataset1.Recordset.MoveFirst;
+  for i:=0 to count-1 do
+   begin
+    cb_year.Items.Add(String(ADOdataset1.Recordset.Fields.Item['year'].Value));
+    ADOdataset1.Recordset.MoveNext;
+   end;
+  // cb_year.Itemindex:=0;
+  NullStrictConvert:=false; // Prevents reading of NULL from db cause exception
+end;
+
+
+
+procedure TForm_main.FormResize(Sender: TObject);
+var cli_hei : integer;
+    diag_area : integer;
+begin
+  cli_hei:=Form_main.ClientHeight-Statusbar1.Height-2;
+//  StringGrid1.Height:=trunc(cli_hei/2)-StringGrid1.Top;
+//  StringGrid1.Width:=Form_main.ClientWidth-StringGrid1.Left;
+
+  RChart1.Left:=1;
+  RChart1.Top:=StringGrid1.Top+StringGrid1.Height+70;
+  RChart1.Width:=Form_main.ClientWidth-2;
+  diag_area:=Form_main.ClientHeight-(StringGrid1.Top+StringGrid1.Height+StatusBar1.Height+80);
+  RChart1.Height:=trunc(diag_area/2);
+
+  RChart2.Left:=RChart1.Left;
+  RChart2.Top:=RChart1.Top+RChart1.Height+1;
+  RChart2.Width:=RChart1.Width;
+  RChart2.Height:=RChart1.Height;
+  StatusBar1.Panels[0].Width:=Trunc(ClientWidth/4);
+  StatusBar1.Panels[1].Width:=Trunc(ClientWidth/4);
+  StatusBar1.Panels[2].Width:=Trunc(ClientWidth/4);
+  StatusBar1.Panels[3].Width:=Trunc(ClientWidth/4);
+
+end;
+
+procedure TForm_main.FormClose(Sender: TObject; var Action: TCloseAction);
+var AppIniFile : TIniFile;
+begin
+  AppIniFile := TIniFile.Create('trackfile.ini');
+  AppIniFile.Free;
+  try
+   { }
+  finally
+  end;
+end;
+
+procedure TForm_main.Exit1Click(Sender: TObject);
+begin
+ Close;
+end;
+
+procedure TForm_main.StringGrid1DrawCell(Sender: TObject; ACol, ARow: Integer;
+  Rect: TRect; State: TGridDrawState);
+begin
+  StringGrid1.Canvas.TextRect(Rect,Rect.Left+1,Rect.Top,StringGrid1.Cells[ACol,ARow]);
+end;
+
+procedure TForm_main.StringGrid1SelectCell(Sender: TObject; ACol,
+  ARow : Integer; var CanSelect: Boolean);
+
+var
+  R : TRect;
+
+begin
+  if (ACol IN [1,2,3,6]) then begin   // do not allow edit for ID,dL or aeL
+    R := StringGrid1.CellRect(ACol, ARow);
+    R.Left := R.Left + StringGrid1.Left;
+    R.Right := R.Right + StringGrid1.Left;
+    R.Top := R.Top + StringGrid1.Top;
+    R.Bottom := R.Bottom + StringGrid1.Top;
+    Edit1.Left := R.Left + 1;
+    Edit1.Top := R.Top + 1;
+    Edit1.Width := (R.Right + 1) - R.Left;
+    Edit1.Height := (R.Bottom + 1) - R.Top;
+   {Show the Edit}
+    Edit1.Visible := True;
+    Edit1.SetFocus;
+    Edit1.Text:=StringGrid1.Cells[Acol,Arow];
+    CanSelect:=true;
+  end;
+end;
+
+
+procedure TForm_main.Edit1Exit(Sender: TObject);
+var logrec : string;
+begin
+ If (StrComp(PChar(StringGrid1.Cells[StringGrid1.Col,StringGrid1.Row]),PChar(Edit1.Text))<>0) then
+  begin  {Get the Edit content and place in the grid}
+   if StringGrid1.Col=6 then  // Special case for edit action column
+    begin
+     Edit1.Text:=Trim(Edit1.Text); If (Edit1.Text='') then Edit1.Text:='-'; // ... or crash ...
+     if ((Edit1.Text[1] IN ['D','d','E','e','S','s','-']) AND (StrLen(PChar(Edit1.Text))=1))then
+      begin
+       StringGrid1.Cells[StringGrid1.Col,StringGrid1.Row] :=Edit1.Text;
+      // StringGrid1.Rows[StringGrid1.Row].QuoteChar:='Q';
+      end
+     else
+       ShowMessage('Invalid Edit code!! Must be only one character ("s","d","e" or "-" ');
+    end // end if action column
+   else // otherwise, just replace grid cell content with edit
+     StringGrid1.Cells[StringGrid1.Col,StringGrid1.Row] :=Edit1.Text;
+
+   case StringGrid1.Col of
+//     1 : logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' Azi '+Edit1.Text;
+     1 : logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' Azi '+StringReplace(Edit1.Text,',','.',[rfReplaceAll,rfIgnoreCase]);
+     2 : logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' Ele '+StringReplace(Edit1.Text,',','.',[rfReplaceAll,rfIgnoreCase]);
+     3 : logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' Dist '+StringReplace(Edit1.Text,',','.',[rfReplaceAll,rfIgnoreCase]);
+     6 : begin
+          if ((Edit1.Text[1] IN ['d','D']) AND (StrLen(PChar(Edit1.Text))=1)) then
+            logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' start delete '+Edit1.Text else
+          if ((Edit1.Text[1] IN ['e','E']) AND (StrLen(PChar(Edit1.Text))=1)) then
+            logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' end delete '+Edit1.Text else
+          if ((Edit1.Text[1] IN ['s','S']) AND (StrLen(PChar(Edit1.Text))=1)) then
+            logrec:=StringGrid1.Cells[0,StringGrid1.Row]+' line delete '+Edit1.Text;
+         end;
+   end;
+   lb_editlog.Items.Add(logrec);
+(*
+   if (Edit1.Text<>'-') then
+    if ((Edit1.Text<>'-') AND (StrLen(PChar(Edit1.Text))=1)) then
+     begin
+       if (StrLen(PChar(Edit1.Text))=1) then // this is an action
+         begin
+           logrec:=StringGrid1.Cells[0,StringGrid1.Row]+logrec+Edit1.Text;
+           lb_editlog.Items.Add(logrec);
+         end;
+     end;
+ *)
+  end; // end if content has changed
+  Edit1.Visible := False;
+  StringGrid1.SetFocus;
+end;
+
+procedure TForm_main.cb_yearChange(Sender: TObject);
+var i, count : integer;
+    selectedyear : string;
+    sql : string;
+begin
+  selectedyear:=cb_year.Items[cb_year.Itemindex];
+
+  sql:='SELECT starttime FROM track WHERE date_part(''year'',starttime)='+selectedyear;
+  if cb_excludecrap.Checked then sql:=sql+' AND track_quality!=''C'' ';
+  sql:=sql+' AND collection_type=';
+  if (rg_colltype.ItemIndex=0) then sql:=sql+'''B''' else sql:=sql+'''W''';
+  sql:=sql+' ORDER BY starttime asc';
+
+  ADOCommand1.CommandText:=sql;
+  ADODataset1.Recordset:=ADOCommand1.Execute;
+  count:=ADOdataset1.RecordCount;
+  Statusbar1.Panels[3].Text:='Track Count: '+IntToStr(count);
+  ADOdataset1.Recordset.MoveFirst;
+  cb_starttime.Items.Clear;
+  for i:=0 to count-1 do
+   begin
+    cb_starttime.Items.Add(String(ADOdataset1.Recordset.Fields.Item['starttime'].Value));
+    ADOdataset1.Recordset.MoveNext;
+   end;
+  // cb_starttime.ItemIndex:=0;
+
+end;
+
+procedure TForm_main.cb_starttimeChange(Sender: TObject);
+var i, count : integer;
+    selectedstarttime : string;
+    mysql : string;
+begin
+  selectedstarttime:=cb_starttime.Items[cb_starttime.Itemindex];
+  mysql:='SELECT starttime FROM track WHERE starttime>='''+selectedstarttime+''' ORDER BY starttime asc';
+  ADOCommand1.CommandText:=mysql;
+  ADODataset1.Recordset:=ADOCommand1.Execute;
+  count:=ADOdataset1.RecordCount;
+  Statusbar1.Panels[3].Text:='Track Count: '+IntToStr(count);
+  ADOdataset1.Recordset.Sort;
+  ADOdataset1.Recordset.MoveFirst;
+  cb_stoptime.Items.Clear;
+  for i:=0 to count-1 do
+   begin
+    cb_stoptime.Items.Add(String(ADOdataset1.Recordset.Fields.Item['starttime'].Value));
+    ADOdataset1.Recordset.MoveNext;
+   end;
+  cb_stoptime.Items.Add('<select stoptime>'); 
+  cb_stoptime.ItemIndex:=count;
+end;
+
+procedure TForm_main.DefinedatasetClick(Sender: TObject);
+begin
+  frm_dataset.visible:=true;
+end;
+
+procedure TForm_main.cb_stoptimeChange(Sender: TObject);
+var    selectedstarttime,selectedstoptime : string;
+       i, count : integer;
+       mysql : string;
+       track_id, editcount : string;
+       lb_string : string;
+begin
+  selectedstarttime:=cb_starttime.Items[cb_starttime.Itemindex];
+  selectedstoptime:=cb_stoptime.Items[cb_stoptime.Itemindex];
+  mysql:='SELECT track_id,starttime FROM track WHERE collection_type=';
+  if (rg_colltype.itemindex=0) then mysql:=mysql+'''B'' ' else
+  mysql:=mysql+'''W'' ';
+  if (cb_excludecrap.Checked=true) then mysql:=mysql+' AND track_quality<>''C''';
+  // TODO : sätt samma villkor på selectboxar för datumavgränsning!
+  mysql:=mysql+' AND starttime>='''+selectedstarttime+''' AND starttime<='''+selectedstoptime+'''';
+  if cb_exclude_edited.Checked then mysql:=mysql+' AND track_id NOT IN (SELECT distinct track_id FROM trackedit WHERE dataset_id='+IntToStr(dataset_id)+') ';
+  mysql:=mysql+' ORDER BY starttime asc';
+  lb_sqltest.Items.Add(mysql);
+  ADOCommand1.CommandText:=mysql;
+  ADODataset1.Recordset:=ADOCommand1.Execute;
+  count:=ADOdataset1.RecordCount;
+  Statusbar1.Panels[3].Text:='Track Count: '+IntToStr(count);
+  ADOdataset1.Recordset.Sort;
+  if count>0 then ADOdataset1.Recordset.MoveFirst;
+  lb_tracks.Items.Clear;
+  for i:=0 to count-1 do
+   begin
+    track_id:=String(ADOdataset1.Recordset.Fields.Item['track_id'].Value);
+    mysql:='SELECT count(*) from trackedit where track_id='+track_id+' AND dataset_id='+IntToStr(dataset_id);
+    ADOCommand1.CommandText:=mysql;
+    ADOdataset2.Recordset:=ADOCommand1.Execute;
+    editcount:=(String(ADOdataset2.Recordset.Fields.Item['count'].Value));
+    lb_string:=String(ADOdataset1.Recordset.Fields.Item['starttime'].Value);
+    lb_string:=lb_string+' [ID:'+track_id+'] [edit: '+editcount+']';
+    lb_tracks.Items.Add(lb_string);
+    ADOdataset1.Recordset.MoveNext;
+   end;
+ // cb_stoptime.ItemIndex:=count-1;
+
+end;
+
+procedure TForm_main.lb_tracksClick(Sender: TObject);
+var starttime,sql,sql2,track_id : string;
+    q,rcount,row, editcount : integer;
+    comment : string;
+    editrecords : array of integer;
+
+function in_editrecords (id:string):boolean;
+var q : integer;
+begin
+ in_editrecords:=false;
+ for q:=0 to High(editrecords) do
+  if (StrToInt(id)=editrecords[q]) then in_editrecords:=true;
+end;
+
+begin
+ // Kolla track_id 850!!
+ Form_main.RChart1.ClearGraf;      Form_main.RChart2.ClearGraf;
+ btn_store.Enabled:=true; editcount:=0;
+ starttime:=leftstr(lb_tracks.Items[lb_tracks.Itemindex],19);
+ sql:='SELECT track_id, target_comment, overall_comment, admin_comment, target_type, track_quality';
+ sql:=sql+' FROM track WHERE starttime='''+starttime+'''';
+ ADOCommand1.CommandText:=sql; ADODataset1.Recordset:=ADOCommand1.Execute;
+ track_id:=String(ADOdataset1.Recordset.Fields.Item['track_id'].Value);
+ comment:='Target comment: '+String(ADOdataset1.Recordset.Fields.Item['target_comment'].Value);
+ lbl_targetcomment.Caption:=comment;
+ comment:='Overall comment: '+String(ADOdataset1.Recordset.Fields.Item['overall_comment'].Value);
+// comment:=AnsiToUTF8(comment)+' '+UTF8encode(comment)+' '+UTF8decode(comment)+' '+UTF8toAnsi(comment);
+ lbl_overallcomment.Caption:=comment;
+ lbl_admincomment.Caption:='Admin comment:'+String(ADOdataset1.Recordset.Fields.Item['admin_comment'].Value);
+ current_track_id:=StrToInt(track_id);
+ lbl_trackquality.Caption:='Track quality: '+String(ADOdataset1.Recordset.Fields.Item['track_quality'].Value);
+ lbl_targettype.Caption:='Target type: '+String(ADOdataset1.Recordset.Fields.Item['target_type'].Value);
+ //sql:='SELECT * FROM trackpoint WHERE track_id='+track_id+' ORDER BY track_id ASC';
+ sql:='SELECT * FROM trackpoint WHERE track_id='+track_id+' ORDER BY trackpoint_id ASC';
+ ADOCommand1.CommandText:=sql;
+ ADODataset1.Recordset:=ADOCommand1.Execute;
+ ADOdataset1.Recordset.MoveFirst;
+ rcount:=ADOdataset1.RecordCount;
+ // Check for number of edit instructions
+ sql2:='SELECT count(*) FROM trackedit WHERE trackpoint_id IS NOT NULL AND dataset_id='+IntToStr(dataset_id)+' AND deleted=true AND track_id='+track_id;
+ ADOCommand1.CommandText:=sql2;
+ ADODataset2.Recordset:=ADOCommand1.Execute;
+ editcount:=StrToInt(String(ADODataset2.Recordset.Fields.Item['count'].Value));
+ if (editcount>0) then
+  begin
+   sql2:='SELECT trackpoint_id FROM trackedit WHERE trackpoint_id IS NOT NULL AND dataset_id='+IntToStr(dataset_id)+' AND deleted=true AND track_id='+track_id+' ORDER by trackpoint_id ASC';
+   ADOCommand1.CommandText:=sql2;
+   ADODataset2.Recordset:=ADOCommand1.Execute;
+   SetLength(editrecords,editcount);
+   ADODataset2.Recordset.MoveFirst;
+   for q:=0 to editcount-1 do
+    begin
+     editrecords[q]:=ADODataset2.Recordset.Fields.Item['trackpoint_id'].Value;
+     ADODataset2.Recordset.MoveNext;
+    end;
+  end;
+ StatusBar1.Panels[2].Text:='Count: '+IntToStr(rcount);
+ With StringGrid1 do
+  begin
+   TopRow:=0;
+   Visible:=true;
+   ColCount:=7;
+   RowCount:=rcount;
+   Canvas.Font.Name:='Verdana';
+   Font.Size:=12;
+   Font.Style:=[fsBold];
+   ColWidths[0]:=60;
+   ColWidths[1]:=50;
+   ColWidths[2]:=50;
+   ColWidths[3]:=50;
+   ColWidths[4]:=25;
+   ColWidths[5]:=25;
+   ColWidths[6]:=30;
+  end;
+  // ADOdataset1.Active:=true;
+  StatusBar1.Panels[2].Text:=StatusBar1.Panels[2].Text+' StringGrid.Rowcount:'+IntToStr(StringGrid1.RowCount);
+  StringGrid1.Cells[0,0]:=String(ADOdataset1.Recordset.Fields.Item['trackpoint_id'].Value);
+  StringGrid1.Cells[1,0]:=String(ADOdataset1.Recordset.Fields.Item['azimuth'].Value);
+  StringGrid1.Cells[2,0]:=String(ADOdataset1.Recordset.Fields.Item['elevation'].Value);
+  StringGrid1.Cells[3,0]:=String(ADOdataset1.Recordset.Fields.Item['distance'].Value);
+  StringGrid1.Cells[4,0]:=String(ADOdataset1.Recordset.Fields.Item['dist_locked'].Value)[1];
+  StringGrid1.Cells[5,0]:=String(ADOdataset1.Recordset.Fields.Item['aziele_locked'].Value)[1];
+  StringGrid1.Cells[6,0]:='-';
+  for row:= 1 to rcount-1 do
+    begin
+     ADOdataset1.Recordset.MoveNext;
+   //  ADOdataset1.FieldValues['trackpoint_id';]
+     StringGrid1.Cells[0,row]:=String(ADOdataset1.Recordset.Fields.Item['trackpoint_id'].Value);
+     StringGrid1.Cells[1,row]:=String(ADOdataset1.Recordset.Fields.Item['azimuth'].Value);
+     StringGrid1.Cells[2,row]:=String(ADOdataset1.Recordset.Fields.Item['elevation'].Value);
+     StringGrid1.Cells[3,row]:=String(ADOdataset1.Recordset.Fields.Item['distance'].Value);
+     StringGrid1.Cells[4,row]:=String(ADOdataset1.Recordset.Fields.Item['dist_locked'].Value)[1];
+     StringGrid1.Cells[5,row]:=String(ADOdataset1.Recordset.Fields.Item['aziele_locked'].Value)[1];
+     // Check if this point is deleted...
+     if in_editrecords(String(ADOdataset1.Recordset.Fields.Item['trackpoint_id'].Value)) then
+      StringGrid1.Cells[6,row]:='s'
+     else
+      StringGrid1.Cells[6,row]:='-';
+    end;
+  btn_azi.Enabled:=true; btn_elev.Enabled:=true; btn_dist.Enabled:=true;
+
+end;
+
+procedure TForm_main.btn_aziClick(Sender: TObject);
+begin
+ HandleDrawGraph(1);
+end;
+
+procedure TForm_main.btn_elevClick(Sender: TObject);
+begin
+ HandleDrawGraph(2);
+end;
+
+procedure TForm_main.btn_distClick(Sender: TObject);
+begin
+ HandleDrawGraph(3);
+end;
+
+procedure TForm_main.btn_altitudeplotClick(Sender: TObject);
+begin
+ HandleDrawGraph(4);
+end;
+
+procedure TForm_main.btn_idClick(Sender: TObject);
+begin
+ Showmessage('Cant graph or edit ID');
+end;
+
+procedure TForm_main.btn_dlClick(Sender: TObject);
+begin
+ Showmessage('Cant graph or edit distance Locked');
+end;
+
+procedure TForm_main.btn_aelClick(Sender: TObject);
+begin
+ Showmessage('Cant graph or edit azimuth/elevation Locked');
+end;
+
+procedure TForm_main.btn_statClick(Sender: TObject);
+begin
+ Showmessage('Edit in cells:   D = start delete    E = end delete    S = delete only current row');
+end;
+
+procedure TForm_main.btn_storeClick(Sender: TObject);
+var   sql,sql1,sql2,start_del_id,end_del_id : string;
+      i, j, q, start_del_id_int,end_del_id_int : integer;
+      subs : Tstrings;
+      rows : integer;
+      must_loop_delete : boolean;
+      reply_count : integer;
+begin
+ reply_count:=0; end_del_id_int:=0; start_del_id_int:=0; must_loop_delete:=false;
+ lb_sqltest.Clear; StatusBar1.Panels[1].Text:='RowCount: '+IntToStr(StringGrid1.RowCount);
+ ADOConn.CursorLocation:=clUseServer;
+ if lb_editlog.Items.Count=0 then // no edits have been made, but we'd like to "touch" the track to show that it's been inspected.
+  begin
+   // Should entire track be labelled as crap?
+   if (cb_excludeTrack.Checked) then
+    sql1:='UPDATE track SET track_quality=''C'' WHERE track_id='+IntToStr(current_track_id)
+   else
+    sql1:='INSERT INTO trackedit (dataset_id,track_id,datachange_type) VALUES ('+IntToStr(dataset_id)+','+IntToStr(current_track_id)+',''N'')';
+   ADOCommand2.CommandText:=sql1;
+   ADOCommand2.Execute(reply_count);
+   lb_sqltest.Items.Add(sql1+'('+IntToStr(reply_count)+')');
+  // store  dataset_id, track_id, trackpoint_id=0 and datachange_type='N'
+  end
+ else
+  begin
+     // todo: remove empty rows from lb_editlog
+    rows:=lb_editlog.Items.Count;
+    StringArray1.Resize(4,rows);     // StringList[col,row]  strange indexing: start at 0 for col, but at 1 for rows (!!)
+    for i:=0 to rows-1 do          // put listbox content into stringarray for sorting
+     begin
+       subs:=TstringList.Create; subs.Clear;
+       q:=ExtractStrings([' '],[' '],PChar(lb_editlog.Items[i]),subs);  // split by space
+       Stringarray1[0,i+1]:=subs[0];     // subs[0] is ok!
+       Stringarray1[1,i+1]:=subs[1];
+       Stringarray1[2,i+1]:=subs[2];
+       if subs.Count>3 then
+        Stringarray1[3,i+1]:=subs[3];   // not all log rows have 4 items
+       subs.Free;
+     end;
+     StringArray1.Sort(0,true); // sort by ID
+     lb_editlog.Items.Clear;    // clear listbox
+     for i:=0 to rows-1 do      // put back data to listbox
+      lb_editlog.Items.Add(Stringarray1[0,i+1]+' '+Stringarray1[1,i+1]+' '+Stringarray1[2,i+1]+' '+Stringarray1[3,i+1]);
+    //debug Label2.Caption:=Stringarray1[0,1]+' - '+Stringarray1[1,1]+' - '+Stringarray1[2,1]+' - '+Stringarray1[3,1];
+     // insert lb_editlog into database and clear all about this rtack (or jump to next)
+     for i:=0 to rows-1 do
+//     for i:=0 to 0 do
+      begin
+       subs:=TstringList.Create; subs.Clear;
+       q:=ExtractStrings([' '],[' '],PChar(lb_editlog.Items[i]),subs);
+       sql1:='INSERT INTO trackedit (dataset_id,track_id,trackpoint_id,deleted,datachange_type,new_value) VALUES(';
+       sql1:=sql1+IntToStr(dataset_id)+','+IntToStr(current_track_id)+','+subs[0]+',';
+       if (subs[1]='line') then sql2:='true,NULL,NULL)';
+       if subs[1]='Azi'  then begin sql2:='false,''A'','+subs[2]+')'; end;     // TODO: string replace , with .
+       if subs[1]='Ele'  then begin sql2:='false,''E'','+subs[2]+')';  end;
+       if subs[1]='Dist' then begin sql2:='false,''D'','+subs[2]+')';  end;
+       if subs[1]='start' then
+        begin
+          start_del_id:=subs[0];  start_del_id_int:=StrToInt(start_del_id);
+          must_loop_delete:=true;
+         // sql2:='true,NULL,NULL)';
+        end;
+       if ((subs[1]='end') OR ((i=rows-1) AND must_loop_delete)) then   // funkar inte, det loopas inte om inte end är taggad...
+        begin
+         end_del_id:=subs[0];
+         end_del_id_int:=StrToInt(end_del_id); // Dec(end_del_id_int);
+         end_del_id:=IntToStr(end_del_id_int);
+         for j:=start_del_id_int to end_del_id_int do
+          begin // run queries to mark all that shall be marked as deleted
+           sql1:='INSERT INTO trackedit (dataset_id,track_id,trackpoint_id,deleted) VALUES (';
+           sql1:=sql1+IntToStr(dataset_id)+','+IntToStr(current_track_id)+','+IntToStr(j)+',true)';
+           ADOCommand2.CommandText:=sql1;
+           ADOCommand2.Execute(reply_count);
+           lb_sqltest.Items.Add(sql1);
+          end;
+         must_loop_delete:=false;
+        end // end if subs=end
+       else
+        begin
+          if not must_loop_delete then begin
+          // execute "single action" query
+           sql:=sql1+' '+sql2;
+//           sql:='INSERT INTO trackedit (dataset_id,track_id,trackpoint_id,deleted,datachange_type,new_value) VALUES (3,831,103542,true,NULL,NULL)';
+//           lb_sqltest.Items.Add(sql);
+           ADOCommand2.CommandText:=sql;
+           ADOCommand2.Execute(reply_count);
+           sql:=sql+' ('+IntToStr(reply_count)+')';
+           lb_sqltest.Items.Add(sql);
+          end;
+        end; // if subs= end ELSE
+      end; // for i:=0 to rows-1 do
+
+  end;
+  for i:=0 to StringGrid1.RowCount-1 do
+   for j:=0 to StringGrid1.ColCount-1 do
+    StringGrid1.Cells[i,j]:=''; StringGrid1.Visible:=false; lb_editlog.Clear;
+ ADOConn.CursorLocation:=clUseClient;
+ cb_excludetrack.Checked:=false;
+end;
+
+procedure TForm_main.btn_delselClick(Sender: TObject);
+var i : integer;
+begin
+ With lb_editlog do
+   for i:=-1 + Items.Count downto 0 do
+    if Selected[i] then Items.Delete(i);
+end;
+
+procedure TForm_main.cb_datasetChange(Sender: TObject);
+var sql, selected_dataset : string;
+begin
+  selected_dataset:=cb_dataset.Items[cb_dataset.Itemindex];
+  sql:='SELECT dataset_id FROM dataset WHERE dataset_name='''+selected_dataset+''' ';
+  lb_sqltest.Items.Add(sql);
+
+  ADOCommand1.CommandText:=sql;
+  ADODataset1.Recordset:=ADOCommand1.Execute;
+  dataset_id:=ADOdataset1.FieldValues['dataset_id'];
+(*  count:=ADOdataset1.RecordCount;
+  ADOdataset1.Recordset.MoveFirst;
+ *)
+ StatusBar1.Panels[0].Text:='Dataset ID: '+IntToStr(dataset_id);
+ cb_year.Enabled:=true;
+end;
+
+procedure TForm_main.Help1Click(Sender: TObject);
+begin
+  ShowMessage('Begin by selecting a dataset, define a new if needed. Choose Bird or Wind tracks. '+
+  'Filter out set of trackings by date (1 - year, 2 - starttime, 3 - stoptime). '+
+  'Click a track to load it. Inspect variables in charts by clicking headings. '+
+  'Edit. ALWAYS follow a D (start delete) with an E (end delete), even in end of trackings! '+
+  'Inspect again. Click Store when you are done with a track. Select next track');
+end;
+
+procedure TForm_main.Debugmode1Click(Sender: TObject);
+begin
+ If (debugmode) then
+  begin
+   debugmode:=false;
+   debugmode1.Checked:=false;
+   lb_sqltest.Visible:=false;
+   lb_sqltest.Align:=alNone;
+   RChart2.Visible:=true;
+  end
+ else
+  begin
+   debugmode:=true;
+   debugmode1.Checked:=true;
+   RChart2.Visible:=false;
+   lb_sqltest.Visible:=true;
+   lb_sqltest.Align:=alBottom;
+  end;
+end;
+
+procedure TForm_main.rg_colltypeClick(Sender: TObject);
+begin
+ if (rg_colltype.ItemIndex=1) then btn_altitudeplot.Enabled:=true
+ else btn_altitudeplot.Enabled:=false;
+end;
+
+
+
+procedure TForm_main.btn_refreshlistClick(Sender: TObject);
+begin
+ cb_stoptimechange(Sender);
+end;
+
+end.

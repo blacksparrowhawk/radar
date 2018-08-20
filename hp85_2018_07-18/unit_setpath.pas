@@ -1,0 +1,60 @@
+unit unit_setpath;
+
+interface
+
+uses
+  Windows, Messages, SysUtils, Variants, Classes, Graphics,
+  Controls, Forms, Dialogs, StdCtrls, FileCtrl;
+
+type
+  Tform_setpath = class(TForm)
+    edt_pathname: TEdit;
+    btn_ok: TButton;
+    DirectoryListBox1: TDirectoryListBox;
+    Label1: TLabel;
+    Label2: TLabel;
+    procedure btn_okClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure DirectoryListBox1Change(Sender: TObject);
+    procedure FormResize(Sender: TObject);
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+var
+  form_setpath: Tform_setpath;
+
+implementation
+
+uses mainunit;
+
+{$R *.dfm}
+
+procedure Tform_setpath.btn_okClick(Sender: TObject);
+begin
+  Form_main.DataFilePath:=edt_pathname.Text;
+  form_setpath.Close;
+end;
+
+procedure Tform_setpath.FormCreate(Sender: TObject);
+begin
+ edt_pathname.Text:=Form_main.DataFilePath;
+ DirectoryListBox1.Directory:=edt_pathname.Text;
+end;
+
+procedure Tform_setpath.DirectoryListBox1Change(Sender: TObject);
+begin
+ edt_pathname.Text:=DirectoryListBox1.Directory;
+end;
+
+procedure Tform_setpath.FormResize(Sender: TObject);
+begin
+  edt_pathname.Width:=form_setpath.ClientWidth-10;
+  Label2.Top:=form_setpath.ClientHeight-16;
+  DirectoryListBox1.Height:=form_setpath.ClientHeight-65;
+  DirectoryListBox1.Width:=form_setpath.ClientWidth-10;
+end;
+
+end.
